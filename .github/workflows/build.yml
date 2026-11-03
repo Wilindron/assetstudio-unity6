@@ -7,17 +7,16 @@ on:
 jobs:
   build:
     runs-on: windows-latest
-    defaults:
-      run:
-        shell: pwsh
-        working-directory: src/AssetStudio-master
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Descomprimir el codigo
-        working-directory: .
-        run: Expand-Archive -Path AssetStudio-Unity6.zip -DestinationPath src -Force
+        shell: pwsh
+        run: |
+          Get-ChildItem
+          Expand-Archive -Path "AssetStudio-Unity6.zip" -DestinationPath "$env:GITHUB_WORKSPACE" -Force
+          Get-ChildItem "$env:GITHUB_WORKSPACE\AssetStudio-master"
 
       - uses: microsoft/setup-msbuild@v2
 
@@ -27,27 +26,43 @@ jobs:
 
       - name: Descargar FBX SDK (para exportar a FBX)
         continue-on-error: true
+        shell: pwsh
         run: |
-          md fbx
-          cd fbx
-          Invoke-WebRequest "https://damassets.autodesk.net/content/dam/autodesk/www/adn/fbx/2020-2-1/fbx202021_fbxsdk_vs2019_win.exe" -OutFile "fbxsdk.exe"
-          Start-Process -FilePath "fbxsdk.exe" /S -Wait
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\fbx" | Out-Null
+          Invoke-WebRequest "https://damassets.autodesk.net/content/dam/autodesk/www/adn/fbx/2020-2-1/fbx202021_fbxsdk_vs2019_win.exe" -OutFile "$env:RUNNER_TEMP\fbx\fbxsdk.exe"
+          Start-Process -FilePath "$env:RUNNER_TEMP\fbx\fbxsdk.exe" -ArgumentList "/S" -Wait
 
       - name: Compilar decodificador de texturas (nativo)
-        run: msbuild Texture2DDecoderNative\Texture2DDecoderNative.vcxproj /p:Configuration=Release /p:Platform=x64 /verbosity:minimal
+        shell: pwsh
+        run: |
+          Set-Location "$env:GITHUB_WORKSPACE\AssetStudio-master"
+          msbuild Texture2DDecoderNative\Texture2DDecoderNative.vcxproj /p:Configuration=Release /p:Platform=x64 /verbosity:minimal
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Compilar exportador FBX (nativo)
         continue-on-error: true
-        run: msbuild AssetStudioFBXNative\AssetStudioFBXNative.vcxproj /p:Configuration=Release /p:Platform=x64 /verbosity:minimal
+        shell: pwsh
+        run: |
+          Set-Location "$env:GITHUB_WORKSPACE\AssetStudio-master"
+          msbuild AssetStudioFBXNative\AssetStudioFBXNative.vcxproj /p:Configuration=Release /p:Platform=x64 /verbosity:minimal
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Restaurar paquetes NuGet
-        run: msbuild AssetStudio.sln /t:Restore /p:Configuration=Release /verbosity:minimal
+        shell: pwsh
+        run: |
+          Set-Location "$env:GITHUB_WORKSPACE\AssetStudio-master"
+          msbuild AssetStudio.sln /t:Restore /p:Configuration=Release /verbosity:minimal
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Compilar AssetStudio (.NET 8)
-        run: msbuild AssetStudio.sln /t:AssetStudioGUI:publish /p:Configuration=Release /p:TargetFramework=net8.0-windows /p:SelfContained=false /verbosity:minimal
+        shell: pwsh
+        run: |
+          Set-Location "$env:GITHUB_WORKSPACE\AssetStudio-master"
+          msbuild AssetStudio.sln /t:AssetStudioGUI:publish /p:Configuration=Release /p:TargetFramework=net8.0-windows /p:SelfContained=false /verbosity:minimal
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Subir el programa compilado
         uses: actions/upload-artifact@v4
         with:
           name: AssetStudio-Unity6
-          path: src/AssetStudio-master/AssetStudioGUI/bin/Release/net8.0-windows/publish
+          path: AssetStudio-master/AssetStudioGUI/bin/Release/net8.0-windows/publish
