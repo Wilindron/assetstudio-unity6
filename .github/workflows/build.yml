@@ -1,0 +1,53 @@
+name: Compilar AssetStudio Unity6
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: src/AssetStudio-master
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Descomprimir el codigo
+        working-directory: .
+        run: Expand-Archive -Path AssetStudio-Unity6.zip -DestinationPath src -Force
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Descargar FBX SDK (para exportar a FBX)
+        continue-on-error: true
+        run: |
+          md fbx
+          cd fbx
+          Invoke-WebRequest "https://damassets.autodesk.net/content/dam/autodesk/www/adn/fbx/2020-2-1/fbx202021_fbxsdk_vs2019_win.exe" -OutFile "fbxsdk.exe"
+          Start-Process -FilePath "fbxsdk.exe" /S -Wait
+
+      - name: Compilar decodificador de texturas (nativo)
+        run: msbuild Texture2DDecoderNative\Texture2DDecoderNative.vcxproj /p:Configuration=Release /p:Platform=x64 /verbosity:minimal
+
+      - name: Compilar exportador FBX (nativo)
+        continue-on-error: true
+        run: msbuild AssetStudioFBXNative\AssetStudioFBXNative.vcxproj /p:Configuration=Release /p:Platform=x64 /verbosity:minimal
+
+      - name: Restaurar paquetes NuGet
+        run: msbuild AssetStudio.sln /t:Restore /p:Configuration=Release /verbosity:minimal
+
+      - name: Compilar AssetStudio (.NET 8)
+        run: msbuild AssetStudio.sln /t:AssetStudioGUI:publish /p:Configuration=Release /p:TargetFramework=net8.0-windows /p:SelfContained=false /verbosity:minimal
+
+      - name: Subir el programa compilado
+        uses: actions/upload-artifact@v4
+        with:
+          name: AssetStudio-Unity6
+          path: src/AssetStudio-master/AssetStudioGUI/bin/Release/net8.0-windows/publish
